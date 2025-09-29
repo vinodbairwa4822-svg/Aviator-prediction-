@@ -1,7 +1,6 @@
-   import numpy as np
+import numpy as np
 import matplotlib.pyplot as plt
 import matplotlib.animation as animation
-import sys  # For stopping program
 
 # ===== Sample Data =====
 results = [1.8, 1.9, 2.0, 3.2, 1.7, 1.8, 1.9, 2.1, 3.3, 1.6, 1.7, 1.8, 2.2, 3.1]
@@ -16,7 +15,7 @@ def detect_trend(results):
             pattern.append("small")
     return pattern
 
-# ===== Smart Pattern Alert Detection =====
+# ===== Smart Pattern Detection =====
 def detect_warning(pattern):
     warning = ""
     if len(pattern) >= 7:
@@ -25,39 +24,31 @@ def detect_warning(pattern):
             warning = "⚠️ Pattern Detected: 3 big → 1 small → 3 big"
     return warning
 
-# ===== Trend Break Detection =====
-def trend_break(pattern):
-    last = pattern[-1]
-    for i in reversed(range(len(pattern) - 1)):
-        if pattern[i] != last:
-            return True
-    return False
-
-# ===== Dynamic Multiplier Prediction =====
-def predict_multiplier(results, pattern):
-    avg = np.mean(results)
-    trend_factor = len(set(pattern)) / len(pattern)
-    if trend_break(pattern):
-        return avg * (1 + trend_factor) * 1.2
-    else:
-        return avg * (1 + trend_factor)
-
-# ===== Graph with Plane Crash Animation =====
+# ===== Graph Styling + Animation =====
 def animate_airplane(results, multiplier, pattern, warning):
-    fig, ax = plt.subplots(figsize=(10, 6))
-    ax.plot(results, marker='o', linestyle='-', color='blue', label="Game Results")
-    ax.axhline(multiplier, color='red', linestyle='--', label=f"Prediction: {multiplier:.2f}×")
+    fig, ax = plt.subplots(figsize=(12, 6))
+    ax.set_facecolor("#f5f5f5")  # background color
 
+    # Smooth trend line
+    ax.plot(results, marker='o', linestyle='-', linewidth=2.5, color='#1f77b4', label="Game Results")
+    ax.fill_between(range(len(results)), results, color="#d0e7ff", alpha=0.3)  # area under line
+
+    # Prediction line
+    ax.axhline(multiplier, color='#ff4c4c', linestyle='--', linewidth=2, label=f"Prediction: {multiplier:.2f}×")
+
+    # Warning message
     if warning:
-        ax.text(len(results)//2, max(results)+0.2, warning, fontsize=14, color='orange', weight='bold')
+        ax.text(len(results)//2, max(results)+0.2, warning, fontsize=14, color='#ff8800', weight='bold')
 
-    ax.set_title("Smart Trend Prediction with Plane Crash ✈️💥", fontsize=16)
+    # Labels and grid
+    ax.set_title("📈 Smart Trend Prediction Chart", fontsize=18, weight='bold')
     ax.set_xlabel("Round", fontsize=14)
     ax.set_ylabel("Multiplier", fontsize=14)
-    ax.grid(True, linestyle='--', alpha=0.6)
-    ax.legend()
+    ax.grid(True, linestyle='--', alpha=0.7)
+    ax.legend(fontsize=12)
 
-    airplane, = ax.plot([], [], marker=">", color="green", markersize=12)
+    # Airplane marker
+    airplane, = ax.plot([], [], marker=">", color="green", markersize=14)
 
     def init():
         airplane.set_data([], [])
@@ -66,28 +57,20 @@ def animate_airplane(results, multiplier, pattern, warning):
     def animate(i):
         if i < len(results):
             airplane.set_data(i, results[i])
-        if warning and i == len(results) - 1:
-            airplane.set_marker("X")  # Plane crash marker
-            airplane.set_color("red")
-            airplane.set_markevery([i])
-            ax.text(i, results[i] + 0.2, "💥 CRASH!", fontsize=14, color="red", weight='bold')
+            airplane.set_color("cyan" if pattern[i-1] == "small" else "green")
         return airplane,
 
-    ani = animation.FuncAnimation(fig, animate, frames=len(results)+5, init_func=init,
+    ani = animation.FuncAnimation(fig, animate, frames=len(results)+10, init_func=init,
                                   interval=500, blit=True, repeat=False)
     plt.show()
 
 # ===== Main =====
 pattern = detect_trend(results)
-multiplier = predict_multiplier(results, pattern)
+multiplier = np.mean(results)  # simple prediction
 warning = detect_warning(pattern)
 
 print(f"Pattern Detected: {pattern}")
-print(f"Trend Break: {trend_break(pattern)}")
 print(f"Warning: {warning}")
 print(f"Predicted Multiplier: {multiplier:.2f}×")
 
 animate_airplane(results, multiplier, pattern, warning)
-
-if warning:
-    raise SystemExit("🚨 Game stopped due to detected pattern and plane crash!")             

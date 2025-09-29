@@ -109,3 +109,39 @@ def predict_next_round_single(previous_multipliers: List[float]) -> str:
 #             st.success(result)
 #     except Exception as e:
 #         st.error(f"Input Error: Please check multiplier format. ({e})")
+# --- Streamlit UI ---
+
+st.set_page_config(page_title="Aviator Smart Prediction", layout="centered")
+st.title("✈️ Aviator Prediction Analyst")
+
+# 1. Input Box
+input_list = st.text_area(
+    "पिछले मल्टीप्लायर्स डालें (कॉमा या नई लाइन से अलग करके):",
+    placeholder="उदाहरण: 1.25, 3.50, 1.05, 1.80, 2.90"
+)
+
+# 2. Button
+if st.button("अगले राउंड का विश्लेषण और अनुमान लगाएँ"):
+    if not input_list:
+        st.warning("कृपया मल्टीप्लायर्स इनपुट करें।")
+    else:
+        try:
+            # इनपुट को प्रोसेस करें (कॉमा या नई लाइन दोनों को सपोर्ट करता है)
+            multipliers_str = input_list.replace('\n', ',')
+            multipliers_float = [float(x.strip()) for x in multipliers_str.split(',') if x.strip()]
+            
+            if len(multipliers_float) < 5:
+                st.error("विश्लेषण के लिए कम से कम 5 मल्टीप्लायर्स ज़रूरी हैं।")
+            else:
+                # 3. Call the main function
+                result = predict_next_round_single(multipliers_float)
+                
+                # 4. Display the result
+                st.success(f"**Result:** {result}")
+                st.info(f"कुल {len(multipliers_float)} डेटा पॉइंट का विश्लेषण किया गया।")
+                
+        except ValueError:
+            st.error("इनपुट में त्रुटि: कृपया सुनिश्चित करें कि सभी मान संख्याएँ (numbers) हैं और सही फॉर्मेट में हैं।")
+        except Exception as e:
+            st.error(f"एक अप्रत्याशित त्रुटि आई: {e}")
+

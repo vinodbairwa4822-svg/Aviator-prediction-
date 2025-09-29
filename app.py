@@ -1,83 +1,99 @@
-import streamlit as st
-import numpy as np
-import pandas as pd
-import random
+import streamlit as st # Streamlit का उपयोग चेतावनी (warning) दिखाने के लिए
+import numpy as np # NumPy का उपयोग औसत (average) गणना के लिए
 
-# --- CONFIGURATION (Aapke Patterns ke Anusaar) ---
-LOW_X_THRESHOLD = 1.80       # 1.80x se chhota = 'Chhota/Low'
-MOMENTUM_BREAK_THRESHOLD = 2.00 # 2.00x se bada = 'Momentum Break/High-Medium'
-SUPER_HIGH_THRESHOLD = 20.00 # 20x se bada = 'Super High/Extreme Risk'
-LOOK_BACK_ROUNDS = 6         # Ab pichle 6 rounds dekhenge patterns ko behtar pehchanne ke liye
+# --- Constants ---
+RISK_LIMIT_MAX = 6.00 
+SAFE_FLOOR = 1.35 
+USER_SIGNAL_THRESHOLD = 2.00 # वह मान जिसके ऊपर आपका इनपुट ट्रेंड तोड़ता है
 
-# --- STREAMLIT UI ---
-st.title('Aviator Pattern Predictor (Final V8) 🎯')
-st.caption("Yeh app aapke sabhi 'Down Flow Lock' aur 'Pattern Priority' rules par aadharit hai।")
+# --- Helper Function: Flow Identification ---
+def calculate_flow(multipliers):
+    """पिछले मल्टीप्लायर्स के आधार पर ट्रेंड (फ्लो) की पहचान करता है।"""
+    if not multipliers or len(multipliers) < 6:
+        return 'UNKNOWN'
 
-# --- USER INPUT ---
-last_multipliers_input = st.text_input(
-    'Pichle Multipliers Daalein (Comma se alag karke)',
-    # Example for testing Down Flow Lock: 4 bade, aur phir 5 chhote (Down Flow Active)
-    '2.50, 3.10, 4.00, 2.10, 1.05, 1.20, 1.35, 1.60, 1.40' 
-)
+    recent_6 = multipliers[-6:]
+    avg_recent = np.mean(recent_6)
+    
+    # High-Value Multiplier Count (3.5x से ऊपर)
+    high_value_count = sum(1 for x in recent_6 if x > 3.50)
+    
+    # Crash Count (1.50x से कम)
+    crash_count = sum(1 for x in recent_6 if x < 1.50)
 
-if st.button('Analyze & Predict Next Round'):
-    try:
-        multipliers = [float(x.strip()) for x in last_multipliers_input.split(',')]
-        if len(multipliers) < LOOK_BACK_ROUNDS:
-            st.error(f"Kripya kam se kam {LOOK_BACK_ROUNDS} multipliers daalein.")
-            st.stop()
-            
-        df = pd.DataFrame({'Multiplier': multipliers})
+    if high_value_count >= 3:
+        return 'LARGE_TREND_FLOW'
+    elif crash_count >= 4:
+        return 'SMALL_CRASH_FLOW'
+    elif 2.00 <= avg_recent <= 3.50:
+        return 'MEDIUM_MOMENTUM_FLOW'
+    else:
+        return 'SMALL_CRASH_FLOW'
+
+# --- Main Prediction Function ---
+def predict_next_round_single(previous_multipliers):
+    
+    if len(previous_multipliers) < 5:
+        # पर्याप्त डेटा न होने पर डिफ़ॉल्ट मान
+        return "Smart Prediction: 1.50x (Need more data)"
+    
+    current_flow = calculate_flow(previous_multipliers)
+    last_input = previous_multipliers[-1]
+
+    # --- 1. Master Control Rules ---
+
+    # MASTER RULE A: 50x के बाद का अनिवार्य क्रैश रीसेट
+    if last_input >= 40.0: 
+        current_flow = 'FORCED_CRASH_RESET' 
+
+    # MASTER RULE B: छोटे ट्रेंड को तोड़ने का आपका सिग्नल (> 2.0x)
+    # यह नियम बिना आपके सिग्नल के बड़े नंबर देने से रोकता है।
+    if current_flow == 'SMALL_CRASH_FLOW' and last_input > USER_SIGNAL_THRESHOLD:
+        current_flow = 'MEDIUM_MOMENTUM_FLOW' # ट्रेंड ब्रेक!
+    elif current_flow == 'LARGE_TREND_FLOW' and sum(1 for x in previous_multipliers[-2:] if x < 1.50) >= 2:
+        current_flow = 'SMALL_CRASH_FLOW' # लगातार 2 छोटे आने पर ट्रेंड ब्रेक!
+
+    # --- 2. Base Calculation ---
+    last_5_avg = np.mean(previous_multipliers[-5:])
+    # 1.35x का फ़्लोर लागू करें (Minimum Prediction इतना ज़रूर रहेगा)
+    base_prediction = max(last_5_avg, SAFE_FLOOR) 
+    
+    smart_prediction = base_prediction
+
+    # --- 3. Smart Prediction Adjustment by Flow ---
+    
+    if current_flow == 'FORCED_CRASH_RESET':
+        # 50x के बाद का रीसेट: 1.40x से ज़्यादा नहीं
+        smart_prediction = min(1.40, base_prediction)
         
-        # --- PATTERN CHECKING AND COUNTING ---
-        recent_rounds = multipliers[-LOOK_BACK_ROUNDS:]
-        low_count_recent = sum(1 for x in recent_rounds if x < LOW_X_THRESHOLD)
-        momentum_break_count = sum(1 for x in multipliers[-4:] if x >= MOMENTUM_BREAK_THRESHOLD)
+    elif current_flow == 'LARGE_TREND_FLOW':
+        # 4 बड़े 1 छोटा जैसे मजबूत पैटर्न पर 4.5x तक सीमित
+        # Min को 2.0x पर पुश करें
+        smart_prediction = min(max(base_prediction * 1.5, 2.00), 4.50) 
         
-        # DOWN FLOW LOCK LOGIC
-        # Jab 3 ya 4 momentum break rounds aaye hain (2x+) aur latest round 2x se chhota hai, tab Down Flow Lock.
-        down_flow_lock = (multipliers[-1] < MOMENTUM_BREAK_THRESHOLD) and (momentum_break_count >= 3)
+    elif current_flow == 'MEDIUM_MOMENTUM_FLOW':
+        # 1 बड़ा 1 छोटा जैसे पैटर्न में 3.5x तक सीमित
+        # Min को 1.80x पर पुश करें
+        smart_prediction = min(max(base_prediction * 1.3, 1.80), 3.50)
         
-        st.header("🔮 Next Round 'Guess' (Down Flow Lock Applied)")
-        st.line_chart(df['Multiplier'])
+    elif current_flow == 'SMALL_CRASH_FLOW':
+        # बिना सिग्नल के 2.0x से ज़्यादा नहीं
+        smart_prediction = min(base_prediction * 1.1, 2.00)
+        
+        # (बूस्ट लॉजिक: अगर 2 बार 1.35x से कम आया, तो 0.15x का बूस्ट दें)
+        if sum(1 for x in previous_multipliers[-3:] if x < 1.35) >= 2:
+            smart_prediction += 0.15
 
-        # --- PREDICTION LOGIC (Aapki Shartein Priority ke Saath) ---
-        
-        # 🔑 RULE 1: Super High X ke baad (Highest Risk)
-        if any(x >= SUPER_HIGH_THRESHOLD for x in recent_rounds):
-            prediction_guess = random.uniform(1.01, 1.25)
-            st.error(f"🚨 **EXTREME LOW GUESS (HIGH RISK ZONE):** **{prediction_guess:.2f}x** (Super High X ke baad।)")
-        
-        # 🔑 RULE 2: Down Flow LOCK Active (Jab tak 2x+ nahi aaya, chota hi dega)
-        elif down_flow_lock:
-            prediction_guess = random.uniform(1.05, 1.70)
-            st.warning(f"⬇️ **DOWN FLOW LOCK:** **{prediction_guess:.2f}x** (Lock Laga Hua Hai। Chote X aayenge।)")
-            st.caption("💡 **Aapka Rule:** Jab tak aap khud 2x+ nahi daalenge, app 2x+ predict nahi karega।")
-            
-        # 🔑 RULE 3: VERY BEST Pattern (5-6 baar Bada Lagataar)
-        # 4 ya 5 numbers 2x se bade aur 2 ya usse kam 1.80x se chote (momentum strong)
-        elif sum(1 for x in multipliers[-6:] if x >= MOMENTUM_BREAK_THRESHOLD) >= 4 and low_count_recent <= 2:
-            prediction_guess = random.uniform(3.5, 8.0)
-            st.success(f"⭐⭐ **VERY BEST GUESS:** **{prediction_guess:.2f}x** (Strong Momentum। Jaisa aapne bataya, 4-5 bade lagataar!)")
-            
-        # 🔑 RULE 4: MEDIUM Pattern (2 Chote, 3 Bade, 1 Chota, 2 Bade - Zig Zag)
-        # Yaani 6 rounds mein 3 ya 4 2x+ ke numbers ho, aur low count 2-3 ho
-        elif 3 <= sum(1 for x in multipliers[-6:] if x >= MOMENTUM_BREAK_THRESHOLD) <= 4 and 2 <= low_count_recent <= 3:
-            prediction_guess = random.uniform(2.0, 4.5)
-            st.info(f"🔥 **MEDIUM GUESS:** **{prediction_guess:.2f}x** (Zig-Zag / Mixed Trend।)")
+    # --- 4. खराब पैटर्न पर चेतावनी (Warning on Bad Patterns) ---
+    recent_4 = previous_multipliers[-4:]
+    # खराब पैटर्न: 3-4 छोटे followed by 1 बड़ा (3 बार छोटे और 1 बार बड़ा)
+    if sum(1 for x in recent_4 if x < 2.0) >= 3 and sum(1 for x in recent_4 if x > 3.0) >= 1:
+        st.warning("⚠️ **Warning:** Trend is unstable (3-4 small followed by 1 big). Consider a safe cash-out.")
 
-        # 🔑 RULE 5: KHARAB Pattern (3 Chote, 1 Bada)
-        # Jab lagatar chote ki chain ban rahi ho, yaani 6 rounds mein 4 ya 5 low X
-        elif low_count_recent >= 4 and sum(1 for x in multipliers[-6:] if x >= MOMENTUM_BREAK_THRESHOLD) <= 2:
-            prediction_guess = random.uniform(1.85, 3.0)
-            st.warning(f"📉 **KHARAB GUESS (BREAK CHANCE):** **{prediction_guess:.2f}x** (3-4 Chhote ke baad Bada aane ka chance।)")
-            
-        # 🔑 Default Low Risk (Koi pattern match nahi)
-        else:
-            prediction_guess = random.uniform(1.01, 1.70)
-            st.error(f"📉 **Default LOW GUESS:** **{prediction_guess:.2f}x** (Clear pattern nahi। Risk kam lein।)")
 
-    except ValueError:
-        st.error("Kripya sahi format mein numbers daalein (Jaise: 1.50, 2.05)।")
-    except Exception as e:
-        st.error(f"Ek error hua: {e}")
+    # --- 5. Final Output ---
+    
+    # 2 दशमलव स्थानों तक सीमित करें
+    final_prediction = round(min(smart_prediction, RISK_LIMIT_MAX), 2) # 6.0x से ऊपर नहीं जाएगा
+
+    return f"Smart Prediction: {final_prediction}x (Balanced Target)"

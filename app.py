@@ -1,121 +1,93 @@
-import streamlit as st
-import numpy as np
-import random
+   import numpy as np
 import matplotlib.pyplot as plt
-from typing import List
+import matplotlib.animation as animation
+import sys  # For stopping program
 
-# --- Constants ---
-RISK_LIMIT_MAX = 6.00 
-SAFE_FLOOR = 1.35 
-USER_SIGNAL_THRESHOLD = 2.00
+# ===== Sample Data =====
+results = [1.8, 1.9, 2.0, 3.2, 1.7, 1.8, 1.9, 2.1, 3.3, 1.6, 1.7, 1.8, 2.2, 3.1]
 
-# --- Pattern Detection ---
-def detect_pattern(multipliers: List[float]) -> str:
-    if len(multipliers) < 4:
-        return "INSUFFICIENT DATA"
+# ===== Trend Detection =====
+def detect_trend(results):
+    pattern = []
+    for i in range(1, len(results)):
+        if results[i] > results[i-1]:
+            pattern.append("big")
+        else:
+            pattern.append("small")
+    return pattern
 
-    pattern = ["B" if m >= 2.0 else "C" for m in multipliers[-4:]]
+# ===== Smart Pattern Alert Detection =====
+def detect_warning(pattern):
+    warning = ""
+    if len(pattern) >= 7:
+        last7 = pattern[-7:]
+        if last7[:3] == ["big", "big", "big"] and last7[3] == "small" and last7[4:] == ["big", "big", "big"]:
+            warning = "⚠️ Pattern Detected: 3 big → 1 small → 3 big"
+    return warning
 
-    if pattern == ["B", "B", "C", "C"]:
-        return "GOOD TREND"
-    if pattern == ["B", "C", "C", "B"]:
-        return "BAD TREND"
-    if all(p == "C" for p in pattern[-3:]):
-        return "SMALL TREND"
+# ===== Trend Break Detection =====
+def trend_break(pattern):
+    last = pattern[-1]
+    for i in reversed(range(len(pattern) - 1)):
+        if pattern[i] != last:
+            return True
+    return False
 
-    return "UNKNOWN"
-
-def check_trend_break(multipliers: List[float]) -> bool:
-    if not multipliers:
-        return False
-    return multipliers[-1] >= 2.0
-
-# --- Prediction Logic ---
-def predict_next_round_single(previous_multipliers: List[float]) -> float:
-    if len(previous_multipliers) < 5:
-        return 1.50
-
-    last_input = previous_multipliers[-1]
-    last_5_avg = np.mean(previous_multipliers[-5:])
-    base_prediction = max(last_5_avg, SAFE_FLOOR) 
-
-    if detect_pattern(previous_multipliers) == "GOOD TREND":
-        smart_prediction = min(base_prediction * 1.5, 4.50)
-    elif detect_pattern(previous_multipliers) == "SMALL TREND":
-        smart_prediction = min(base_prediction * 1.1, 2.00)
-    elif detect_pattern(previous_multipliers) == "BAD TREND":
-        smart_prediction = min(base_prediction * 1.2, 3.00)
+# ===== Dynamic Multiplier Prediction =====
+def predict_multiplier(results, pattern):
+    avg = np.mean(results)
+    trend_factor = len(set(pattern)) / len(pattern)
+    if trend_break(pattern):
+        return avg * (1 + trend_factor) * 1.2
     else:
-        smart_prediction = base_prediction
+        return avg * (1 + trend_factor)
 
-    return round(min(smart_prediction, RISK_LIMIT_MAX), 2)
+# ===== Graph with Plane Crash Animation =====
+def animate_airplane(results, multiplier, pattern, warning):
+    fig, ax = plt.subplots(figsize=(10, 6))
+    ax.plot(results, marker='o', linestyle='-', color='blue', label="Game Results")
+    ax.axhline(multiplier, color='red', linestyle='--', label=f"Prediction: {multiplier:.2f}×")
 
-# --- Streamlit UI ---
-st.set_page_config(page_title="Aviator Smart Prediction", layout="centered")
-st.title("✈️ Aviator Prediction Analyst with Trend Detection 📊")
+    if warning:
+        ax.text(len(results)//2, max(results)+0.2, warning, fontsize=14, color='orange', weight='bold')
 
-if "multipliers" not in st.session_state:
-    st.session_state.multipliers = []
+    ax.set_title("Smart Trend Prediction with Plane Crash ✈️💥", fontsize=16)
+    ax.set_xlabel("Round", fontsize=14)
+    ax.set_ylabel("Multiplier", fontsize=14)
+    ax.grid(True, linestyle='--', alpha=0.6)
+    ax.legend()
 
-# Buttons
-col1, col2, col3 = st.columns(3)
-with col1:
-    if st.button("Generate Random Multiplier"):
-        new_val = round(random.uniform(1.05, 6.00), 2)
-        st.session_state.multipliers.append(new_val)
-        if len(st.session_state.multipliers) > 30:
-            st.session_state.multipliers.pop(0)
-with col2:
-    if st.button("Clear History"):
-        st.session_state.multipliers = []
-with col3:
-    if st.button("Trend Analysis"):
-        trend_status = detect_pattern(st.session_state.multipliers)
-        st.info(f"Trend Status: {trend_status}")
-        if check_trend_break(st.session_state.multipliers):
-            st.success("📢 Trend break confirmed with ≥ 2× multiplier!")
+    airplane, = ax.plot([], [], marker=">", color="green", markersize=12)
 
-# Input multipliers manually
-input_list = st.text_area(
-    "पिछले मल्टीप्लायर्स (कॉमा या नई लाइन से अलग):",
-    value=", ".join(map(str, st.session_state.multipliers))
-)
+    def init():
+        airplane.set_data([], [])
+        return airplane,
 
-if st.button("Predict Next Round"):
-    if not input_list:
-        st.warning("कृपया मल्टीप्लायर्स इनपुट करें।")
-    else:
-        try:
-            multipliers_str = input_list.replace('\n', ',')
-            multipliers_float = [float(x.strip()) for x in multipliers_str.split(',') if x.strip()]
-            
-            if len(multipliers_float) < 5:
-                st.error("कम से कम 5 मल्टीप्लायर्स ज़रूरी हैं।")
-            else:
-                prediction = predict_next_round_single(multipliers_float)
-                trend_status = detect_pattern(multipliers_float)
-                trend_break = check_trend_break(multipliers_float)
+    def animate(i):
+        if i < len(results):
+            airplane.set_data(i, results[i])
+        if warning and i == len(results) - 1:
+            airplane.set_marker("X")  # Plane crash marker
+            airplane.set_color("red")
+            airplane.set_markevery([i])
+            ax.text(i, results[i] + 0.2, "💥 CRASH!", fontsize=14, color="red", weight='bold')
+        return airplane,
 
-                st.success(f"🎯 Smart Prediction: {prediction}x")
-                st.info(f"Trend Status: {trend_status}")
-                if trend_break:
-                    st.warning("📢 Trend break confirmed!")
+    ani = animation.FuncAnimation(fig, animate, frames=len(results)+5, init_func=init,
+                                  interval=500, blit=True, repeat=False)
+    plt.show()
 
-                # Graph Plotting
-                fig, ax = plt.subplots(figsize=(8,4))
-                ax.plot(multipliers_float, marker='o', linestyle='-', color='blue', label="Multiplier History")
-                ax.axhline(prediction, color='red', linestyle='--', label=f"Prediction: {prediction}x")
-                ax.set_title("Aviator Multiplier Trend & Prediction")
-                ax.set_xlabel("Rounds")
-                ax.set_ylabel("Multiplier (x)")
-                ax.legend()
-                st.pyplot(fig)
+# ===== Main =====
+pattern = detect_trend(results)
+multiplier = predict_multiplier(results, pattern)
+warning = detect_warning(pattern)
 
-        except ValueError:
-            st.error("इनपुट में त्रुटि: सभी मान संख्याएँ (numbers) होने चाहिए।")
-        except Exception as e:
-            st.error(f"एक अप्रत्याशित त्रुटि आई: {e}")
+print(f"Pattern Detected: {pattern}")
+print(f"Trend Break: {trend_break(pattern)}")
+print(f"Warning: {warning}")
+print(f"Predicted Multiplier: {multiplier:.2f}×")
 
-# Show multiplier history
-st.write("### 📊 Latest Multipliers History")
-st.write(st.session_state.multipliers)
+animate_airplane(results, multiplier, pattern, warning)
+
+if warning:
+    raise SystemExit("🚨 Game stopped due to detected pattern and plane crash!")             

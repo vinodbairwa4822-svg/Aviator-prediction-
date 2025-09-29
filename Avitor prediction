@@ -1,7 +1,7 @@
 <!DOCTYPE html>
 <html>
 <head>
-    <title>Aviator Pattern Tracker Pro - V8 Master</title>
+    <title>Aviator Pattern Tracker Pro - V8 Master FIX</title>
     <style>
         /* CSS Styling */
         body { font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; margin: 20px; background-color: #f4f4f9; color: #333; }
@@ -23,11 +23,14 @@
             border: 2px solid #ffc107; padding: 15px; margin-top: 20px; 
             background-color: #fff3cd; border-radius: 8px;
         }
-        .warning { color: #856404; background-color: #fff3cd; border-color: #ffeeba; padding: 10px; border-radius: 5px; margin-top: 10px; }
+        .warning { 
+            color: #856404; background-color: #fff3cd; border: 1px solid #ffeeba; padding: 10px; border-radius: 5px; margin-top: 10px; 
+            font-weight: bold; 
+        }
     </style>
 </head>
 <body>
-    <h2>Aviator Pattern Tracker Pro - V8 Master</h2>
+    <h2>Aviator Pattern Tracker Pro - V8 Master FIX</h2>
     <input type="number" step="0.01" id="multiplier" placeholder="Enter multiplier (e.g., 3.45)">
     <button onclick="addMultiplier()">Add Multiplier</button>
     <button onclick="resetData()">Reset Data</button>
@@ -36,7 +39,7 @@
     <div id="multiplierList">[]</div>
 
     <h3>Prediction & Pattern Analysis:</h3>
-    <div id="prediction" class="prediction-box">Please add some multipliers to see the analysis.</div>
+    <div id="prediction" class="prediction-box">Please add some multipliers (min 5) to see the Smart Prediction.</div>
     <div id="warningMessage"></div>
 
     <table>
@@ -131,6 +134,7 @@
     function calculateSmartPrediction() {
         if (multipliers.length < 5) {
              document.getElementById("prediction").innerHTML = "Smart Prediction: 1.50x (Need at least 5 rounds)";
+             document.getElementById("warningMessage").innerHTML = '';
              return;
         }
 
@@ -157,6 +161,7 @@
         // --- 2. Base Calculation (Minimum Floor) ---
         const last_5 = multipliers.slice(-5);
         const last_5_avg = last_5.reduce((a, b) => a + b, 0) / 5;
+        // 1.35x का फ़्लोर लागू करें
         let base_prediction = Math.max(last_5_avg, SAFE_FLOOR); 
         let smart_prediction = base_prediction;
 
@@ -172,7 +177,7 @@
             smart_prediction = Math.min(Math.max(base_prediction * 1.3, 1.80), 3.50);
             
         } else if (current_flow === 'SMALL_CRASH_FLOW' || current_flow === 'UNKNOWN') {
-            // बिना सिग्नल के 2.0x से ज़्यादा नहीं
+            // 2.0x से ज़्यादा नहीं
             smart_prediction = Math.min(base_prediction * 1.1, 2.00);
             
             // बूस्ट लॉजिक
@@ -188,7 +193,7 @@
         } else if (current_flow === 'FORCED_CRASH_RESET') {
             warning_message = '⚠️ **FORCED RESET:** Very large multiplier hit. Predicting highly safe.';
         } else {
-             warning_message = `Current Flow: ${current_flow.replace(/_/g, ' ')}. System is running on balanced target.`;
+             warning_message = `Current Flow: ${current_flow.replace(/_/g, ' ').toUpperCase()}. System is running on balanced target.`;
         }
 
         // --- 5. Final Output ---

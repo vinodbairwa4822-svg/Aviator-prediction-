@@ -1,7 +1,7 @@
 <!DOCTYPE html>
 <html>
 <head>
-    <title>Aviator Pattern Tracker Pro</title>
+    <title>Aviator Pattern Tracker Pro - V8 Master</title>
     <style>
         /* CSS Styling */
         body { font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; margin: 20px; background-color: #f4f4f9; color: #333; }
@@ -23,10 +23,11 @@
             border: 2px solid #ffc107; padding: 15px; margin-top: 20px; 
             background-color: #fff3cd; border-radius: 8px;
         }
+        .warning { color: #856404; background-color: #fff3cd; border-color: #ffeeba; padding: 10px; border-radius: 5px; margin-top: 10px; }
     </style>
 </head>
 <body>
-    <h2>Aviator Pattern Tracker Pro</h2>
+    <h2>Aviator Pattern Tracker Pro - V8 Master</h2>
     <input type="number" step="0.01" id="multiplier" placeholder="Enter multiplier (e.g., 3.45)">
     <button onclick="addMultiplier()">Add Multiplier</button>
     <button onclick="resetData()">Reset Data</button>
@@ -36,6 +37,7 @@
 
     <h3>Prediction & Pattern Analysis:</h3>
     <div id="prediction" class="prediction-box">Please add some multipliers to see the analysis.</div>
+    <div id="warningMessage"></div>
 
     <table>
         <thead>
@@ -51,8 +53,13 @@
 
 <script>
     let multipliers = [];
-    let patterns = []; // Stores "Bada" or "Chhota"
+    let patterns = []; 
     const MAX_ROUNDS = 30;
+    
+    // --- Constants from Final Logic ---
+    const RISK_LIMIT_MAX = 6.00; 
+    const SAFE_FLOOR = 1.35; 
+    const USER_SIGNAL_THRESHOLD = 2.00;
 
     function addMultiplier() {
         let val = parseFloat(document.getElementById("multiplier").value);
@@ -61,7 +68,6 @@
             return; 
         }
         
-        // Data Storage and Limit Check
         multipliers.push(val);
         if (multipliers.length > MAX_ROUNDS) { multipliers.shift(); }
 
@@ -69,7 +75,6 @@
         patterns.push(mode);
         if (patterns.length > MAX_ROUNDS) { patterns.shift(); }
 
-        // Clear input after adding
         document.getElementById("multiplier").value = '';
         document.getElementById("multiplier").focus();
         
@@ -81,90 +86,119 @@
         patterns = [];
         updateUI();
         document.getElementById("prediction").innerHTML = "Data has been reset. Please enter new multipliers.";
+        document.getElementById("warningMessage").innerHTML = '';
     }
 
     function updateUI() {
-        document.getElementById("multiplierList").innerText = multipliers.slice().reverse().join(", ");
-        calculatePrediction();
+        document.getElementById("multiplierList").innerText = multipliers.slice().reverse().map(x => x.toFixed(2)).join(", ");
+        calculateSmartPrediction(); 
         updateHistoryTable();
     }
 
     function updateHistoryTable() {
         const tbody = document.getElementById("historyTableBody");
-        tbody.innerHTML = ''; // Clear existing rows
-
-        // Iterate backwards to show latest at the top
+        tbody.innerHTML = ''; 
         for (let i = multipliers.length - 1; i >= 0; i--) {
             const m = multipliers[i];
             const p = patterns[i];
             const row = tbody.insertRow();
-            
-            // Round # is calculated from the full list length
             row.insertCell().innerText = i + 1; 
-            
             const multiplierCell = row.insertCell();
             multiplierCell.innerText = m.toFixed(2) + 'X';
-            
             const modeCell = row.insertCell();
             modeCell.innerText = p;
             modeCell.className = (p === 'Bada' ? 'bada' : 'chhota');
         }
     }
+    
+    // --- Helper Function: Flow Identification ---
+    function calculateFlow(m) {
+        if (m.length < 6) return 'UNKNOWN';
 
-    function calculatePrediction() {
-        if (multipliers.length === 0) return;
+        const recent_6 = m.slice(-6);
+        const avg_recent = recent_6.reduce((a, b) => a + b, 0) / 6;
+        const high_value_count = recent_6.filter(x => x > 3.50).length;
+        const crash_count = recent_6.filter(x => x < 1.50).length;
 
-        // 1. Basic Stats
-        let sum = multipliers.reduce((a,b) => a+b, 0);
-        let avg = (sum / multipliers.length).toFixed(2);
-        let above2x = multipliers.filter(x => x >= 2).length;
-        let probability = ((above2x / multipliers.length) * 100).toFixed(2);
-        let suggestion = probability >= 40 ? "BET (Based on 2X+ history)" : "SKIP/WAIT (Low 2X+ frequency)";
-
-        // 2. Pattern Analysis (Hint Logic)
-        let hint = getHint();
-        let patternStr = patterns.slice().reverse().join(" → "); // Latest first
-
-        // 3. Display Results
-        document.getElementById("prediction").innerHTML = 
-            `<h4>📊 Statistical Summary:</h4>` +
-            `<p><b>Average Multiplier (Last ${multipliers.length}):</b> ${avg}×</p>` +
-            `<p><b>Frequency (>= 2×):</b> ${probability}%</p>` +
-            `<p><b>Suggested Action:</b> <span style="color: ${suggestion.includes('BET') ? 'green' : 'red'};">${suggestion}</span></p>` +
-            `<hr>` +
-            `<h4>🔍 Pattern Signal:</h4>` +
-            `<p><b>Latest Pattern:</b> ${patternStr.substring(0, 50)}...</p>` +
-            `<p><b>Pattern Hint:</b> <b>${hint}</b></p>`;
+        if (high_value_count >= 3) return 'LARGE_TREND_FLOW';
+        if (crash_count >= 4) return 'SMALL_CRASH_FLOW';
+        if (avg_recent >= 2.00 && avg_recent <= 3.50) return 'MEDIUM_MOMENTUM_FLOW';
+        
+        return 'SMALL_CRASH_FLOW';
     }
-
-    function getHint() {
-        const recent = patterns.slice(-6); // Check last 6 rounds
-
-        // Pattern 1: Long Chhota Streak (Martingale Idea)
-        if (recent.every(x => x === "Chhota") && recent.length === 6) {
-            return "🚩 BIG SIGNAL: 6 Consecutive 'Chhota'. High probability of next round being 'Bada' (>= 2x). Consider a high bet.";
+    
+    // --- The Core Smart Prediction Logic ---
+    function calculateSmartPrediction() {
+        if (multipliers.length < 5) {
+             document.getElementById("prediction").innerHTML = "Smart Prediction: 1.50x (Need at least 5 rounds)";
+             return;
         }
 
-        // Pattern 2: Alternating Pattern Check (e.g., B → C → B → C)
-        let isAlternating = true;
-        for (let i = 0; i < recent.length - 1; i++) {
-            if (recent[i] === recent[i+1]) {
-                isAlternating = false;
-                break;
+        let current_flow = calculateFlow(multipliers);
+        const last_input = multipliers[multipliers.length - 1];
+        let warning_message = '';
+
+        // --- 1. Master Control Rules ---
+
+        // MASTER RULE A: 40x के बाद का अनिवार्य क्रैश रीसेट
+        if (last_input >= 40.0) { 
+            current_flow = 'FORCED_CRASH_RESET'; 
+        } 
+        
+        // MASTER RULE B: छोटे ट्रेंड को तोड़ने का आपका सिग्नल (> 2.0x)
+        if (current_flow === 'SMALL_CRASH_FLOW' && last_input > USER_SIGNAL_THRESHOLD) {
+            current_flow = 'MEDIUM_MOMENTUM_FLOW';
+        }
+        // MASTER RULE C: बड़े ट्रेंड को तोड़ने का लगातार 2 छोटे का सिग्नल
+        else if (current_flow === 'LARGE_TREND_FLOW' && multipliers.slice(-2).filter(x => x < 1.50).length >= 2) {
+            current_flow = 'SMALL_CRASH_FLOW';
+        }
+
+        // --- 2. Base Calculation (Minimum Floor) ---
+        const last_5 = multipliers.slice(-5);
+        const last_5_avg = last_5.reduce((a, b) => a + b, 0) / 5;
+        let base_prediction = Math.max(last_5_avg, SAFE_FLOOR); 
+        let smart_prediction = base_prediction;
+
+        // --- 3. Smart Prediction Adjustment by Flow ---
+        
+        if (current_flow === 'FORCED_CRASH_RESET') {
+            smart_prediction = Math.min(1.40, base_prediction);
+            
+        } else if (current_flow === 'LARGE_TREND_FLOW') {
+            smart_prediction = Math.min(Math.max(base_prediction * 1.5, 2.00), 4.50); 
+
+        } else if (current_flow === 'MEDIUM_MOMENTUM_FLOW') {
+            smart_prediction = Math.min(Math.max(base_prediction * 1.3, 1.80), 3.50);
+            
+        } else if (current_flow === 'SMALL_CRASH_FLOW' || current_flow === 'UNKNOWN') {
+            // बिना सिग्नल के 2.0x से ज़्यादा नहीं
+            smart_prediction = Math.min(base_prediction * 1.1, 2.00);
+            
+            // बूस्ट लॉजिक
+            if (multipliers.slice(-3).filter(x => x < 1.35).length >= 2) {
+                 smart_prediction += 0.15;
             }
         }
-        if (isAlternating && recent.length >= 4) {
-             return "🔄 ALTERNATING: Recent pattern is Bada → Chhota → Bada... If current is Chhota, next might be Bada.";
-        }
         
-        // Pattern 3: Recent High Multiplier Follow-up
-        // Check if the 2nd or 3rd to last round was Bada
-        if (patterns[patterns.length - 2] === 'Bada' && patterns.slice(-1)[0] === 'Chhota') {
-             return "📉 RECOVERY: Bada was just hit, followed by Chhota. Wait for the pattern to reset or hit a quick cashout.";
+        // --- 4. खराब पैटर्न पर चेतावनी (Warning Message Logic) ---
+        const recent_4 = multipliers.slice(-4);
+        if (recent_4.filter(x => x < 2.0).length >= 3 && recent_4.filter(x => x > 3.0).length >= 1) {
+            warning_message = "🔴 **DANGER:** Unstable pattern (3-4 small followed by 1 big). Suggest waiting or very quick cashout.";
+        } else if (current_flow === 'FORCED_CRASH_RESET') {
+            warning_message = '⚠️ **FORCED RESET:** Very large multiplier hit. Predicting highly safe.';
+        } else {
+             warning_message = `Current Flow: ${current_flow.replace(/_/g, ' ')}. System is running on balanced target.`;
         }
+
+        // --- 5. Final Output ---
+        const final_prediction = Math.round(Math.min(smart_prediction, RISK_LIMIT_MAX) * 100) / 100;
+
+        document.getElementById("prediction").innerHTML = 
+            `<h4>🎯 Smart Prediction Target:</h4>` +
+            `<p style="font-size: 24px;"><b>${final_prediction.toFixed(2)}×</b></p>`;
         
-        // Fallback
-        return "Waiting for a strong pattern or longer streak to develop...";
+        document.getElementById("warningMessage").innerHTML = `<div class="warning">${warning_message.replace(/\*\*/g, '<b>').replace(/\*\*/g, '</b>')}</div>`;
     }
 </script>
 

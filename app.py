@@ -1,147 +1,121 @@
 import streamlit as st
 import numpy as np
+import random
+import matplotlib.pyplot as plt
 from typing import List
 
-# --- 1. Constants ---
+# --- Constants ---
 RISK_LIMIT_MAX = 6.00 
 SAFE_FLOOR = 1.35 
-USER_SIGNAL_THRESHOLD = 2.00 # आपका मास्टर सिग्नल पॉइंट
+USER_SIGNAL_THRESHOLD = 2.00
 
-# --- 2. Helper Function: Flow Identification ---
-def calculate_flow(multipliers: List[float]) -> str:
-    """पिछले मल्टीप्लायर्स के आधार पर ट्रेंड (फ्लो) की पहचान करता है।"""
-    if not multipliers or len(multipliers) < 6:
-        return 'UNKNOWN'
+# --- Pattern Detection ---
+def detect_pattern(multipliers: List[float]) -> str:
+    if len(multipliers) < 4:
+        return "INSUFFICIENT DATA"
 
-    recent_6 = multipliers[-6:]
-    avg_recent = np.mean(recent_6)
-    
-    # High-Value Multiplier Count (3.5x से ऊपर)
-    high_value_count = sum(1 for x in recent_6 if x > 3.50)
-    
-    # Crash Count (1.50x से कम)
-    crash_count = sum(1 for x in recent_6 if x < 1.50)
+    pattern = ["B" if m >= 2.0 else "C" for m in multipliers[-4:]]
 
-    if high_value_count >= 3:
-        return 'LARGE_TREND_FLOW'
-    elif crash_count >= 4:
-        return 'SMALL_CRASH_FLOW'
-    elif 2.00 <= avg_recent <= 3.50:
-        return 'MEDIUM_MOMENTUM_FLOW'
-    else:
-        return 'SMALL_CRASH_FLOW'
+    if pattern == ["B", "B", "C", "C"]:
+        return "GOOD TREND"
+    if pattern == ["B", "C", "C", "B"]:
+        return "BAD TREND"
+    if all(p == "C" for p in pattern[-3:]):
+        return "SMALL TREND"
 
-# --- 3. Main Prediction Function ---
-def predict_next_round_single(previous_multipliers: List[float]) -> str:
-    
+    return "UNKNOWN"
+
+def check_trend_break(multipliers: List[float]) -> bool:
+    if not multipliers:
+        return False
+    return multipliers[-1] >= 2.0
+
+# --- Prediction Logic ---
+def predict_next_round_single(previous_multipliers: List[float]) -> float:
     if len(previous_multipliers) < 5:
-        return "Smart Prediction: 1.50x (Need more data)"
-    
-    current_flow = calculate_flow(previous_multipliers)
+        return 1.50
+
     last_input = previous_multipliers[-1]
-
-    # --- A. Master Control Rules ---
-
-    # MASTER RULE A: 40x के बाद का अनिवार्य क्रैश रीसेट
-    if last_input >= 40.0: 
-        current_flow = 'FORCED_CRASH_RESET' 
-
-    # MASTER RULE B: छोटे ट्रेंड को तोड़ने का आपका सिग्नल (> 2.0x)
-    if current_flow == 'SMALL_CRASH_FLOW' and last_input > USER_SIGNAL_THRESHOLD:
-        current_flow = 'MEDIUM_MOMENTUM_FLOW' 
-    # MASTER RULE C: बड़े ट्रेंड को तोड़ने का लगातार 2 छोटे का सिग्नल
-    elif current_flow == 'LARGE_TREND_FLOW' and sum(1 for x in previous_multipliers[-2:] if x < 1.50) >= 2:
-        current_flow = 'SMALL_CRASH_FLOW' 
-
-    # --- B. Base Calculation (Minimum Floor) ---
     last_5_avg = np.mean(previous_multipliers[-5:])
-    # 1.35x का फ़्लोर लागू करें
     base_prediction = max(last_5_avg, SAFE_FLOOR) 
-    
-    smart_prediction = base_prediction
 
-    # --- C. Smart Prediction Adjustment by Flow ---
-    
-    if current_flow == 'FORCED_CRASH_RESET':
-        # 40x के बाद अनिवार्य रीसेट: 1.40x से ज़्यादा नहीं
-        smart_prediction = min(1.40, base_prediction)
-        
-    elif current_flow == 'LARGE_TREND_FLOW':
-        # मजबूत पैटर्न पर 4.5x तक सीमित
-        smart_prediction = min(max(base_prediction * 1.5, 2.00), 4.50) 
-        
-    elif current_flow == 'MEDIUM_MOMENTUM_FLOW':
-        # 1.80x से 3.5x के बीच
-        smart_prediction = min(max(base_prediction * 1.3, 1.80), 3.50)
-        
-    elif current_flow == 'SMALL_CRASH_FLOW':
-        # बिना सिग्नल के 2.0x से ज़्यादा नहीं
+    if detect_pattern(previous_multipliers) == "GOOD TREND":
+        smart_prediction = min(base_prediction * 1.5, 4.50)
+    elif detect_pattern(previous_multipliers) == "SMALL TREND":
         smart_prediction = min(base_prediction * 1.1, 2.00)
-        
-        # बूस्ट लॉजिक (लगातार छोटे आने पर थोड़ा बढ़ाना)
-        if sum(1 for x in previous_multipliers[-3:] if x < 1.35) >= 2:
-            smart_prediction += 0.15
+    elif detect_pattern(previous_multipliers) == "BAD TREND":
+        smart_prediction = min(base_prediction * 1.2, 3.00)
+    else:
+        smart_prediction = base_prediction
 
-    # --- D. खराब पैटर्न पर चेतावनी (Streamlit) ---
-    recent_4 = previous_multipliers[-4:]
-    # खराब पैटर्न: 3-4 छोटे और फिर 1 बड़ा
-    if sum(1 for x in recent_4 if x < 2.0) >= 3 and sum(1 for x in recent_4 if x > 3.0) >= 1:
-        st.warning("⚠️ **Warning:** Trend is unstable (3-4 small followed by 1 big). Consider a safe cash-out.")
+    return round(min(smart_prediction, RISK_LIMIT_MAX), 2)
 
-
-    # --- E. Final Output ---
-    final_prediction = round(min(smart_prediction, RISK_LIMIT_MAX), 2)
-    current_status = f"Flow: {current_flow.replace('_', ' ').title()}"
-    
-    return f"Smart Prediction: {final_prediction}x (Balanced Target). Status: {current_status}"
-
-# --- Streamlit UI (आपको इसे अपनी UI में जोड़ना होगा) ---
-# [यहां आपका Streamlit UI कोड आएगा, जो मल्टीप्लायर्स लेता है और 
-# predict_next_round_single को कॉल करता है]
-
-# उदाहरण के लिए, अगर आपके पास एक इनपुट लिस्ट है:
-# input_list = st.text_input("Pichle Multipliers Daalein (Comma se alag karke)")
-# if st.button("Analyze & Predict Next Round"):
-#     try:
-#         multipliers_float = [float(x.strip()) for x in input_list.split(',')]
-#         if multipliers_float:
-#             result = predict_next_round_single(multipliers_float)
-#             st.success(result)
-#     except Exception as e:
-#         st.error(f"Input Error: Please check multiplier format. ({e})")
 # --- Streamlit UI ---
-
 st.set_page_config(page_title="Aviator Smart Prediction", layout="centered")
-st.title("✈️ Aviator Prediction Analyst")
+st.title("✈️ Aviator Prediction Analyst with Trend Detection 📊")
 
-# 1. Input Box
+if "multipliers" not in st.session_state:
+    st.session_state.multipliers = []
+
+# Buttons
+col1, col2, col3 = st.columns(3)
+with col1:
+    if st.button("Generate Random Multiplier"):
+        new_val = round(random.uniform(1.05, 6.00), 2)
+        st.session_state.multipliers.append(new_val)
+        if len(st.session_state.multipliers) > 30:
+            st.session_state.multipliers.pop(0)
+with col2:
+    if st.button("Clear History"):
+        st.session_state.multipliers = []
+with col3:
+    if st.button("Trend Analysis"):
+        trend_status = detect_pattern(st.session_state.multipliers)
+        st.info(f"Trend Status: {trend_status}")
+        if check_trend_break(st.session_state.multipliers):
+            st.success("📢 Trend break confirmed with ≥ 2× multiplier!")
+
+# Input multipliers manually
 input_list = st.text_area(
-    "पिछले मल्टीप्लायर्स डालें (कॉमा या नई लाइन से अलग करके):",
-    placeholder="उदाहरण: 1.25, 3.50, 1.05, 1.80, 2.90"
+    "पिछले मल्टीप्लायर्स (कॉमा या नई लाइन से अलग):",
+    value=", ".join(map(str, st.session_state.multipliers))
 )
 
-# 2. Button
-if st.button("अगले राउंड का विश्लेषण और अनुमान लगाएँ"):
+if st.button("Predict Next Round"):
     if not input_list:
         st.warning("कृपया मल्टीप्लायर्स इनपुट करें।")
     else:
         try:
-            # इनपुट को प्रोसेस करें (कॉमा या नई लाइन दोनों को सपोर्ट करता है)
             multipliers_str = input_list.replace('\n', ',')
             multipliers_float = [float(x.strip()) for x in multipliers_str.split(',') if x.strip()]
             
             if len(multipliers_float) < 5:
-                st.error("विश्लेषण के लिए कम से कम 5 मल्टीप्लायर्स ज़रूरी हैं।")
+                st.error("कम से कम 5 मल्टीप्लायर्स ज़रूरी हैं।")
             else:
-                # 3. Call the main function
-                result = predict_next_round_single(multipliers_float)
-                
-                # 4. Display the result
-                st.success(f"**Result:** {result}")
-                st.info(f"कुल {len(multipliers_float)} डेटा पॉइंट का विश्लेषण किया गया।")
-                
+                prediction = predict_next_round_single(multipliers_float)
+                trend_status = detect_pattern(multipliers_float)
+                trend_break = check_trend_break(multipliers_float)
+
+                st.success(f"🎯 Smart Prediction: {prediction}x")
+                st.info(f"Trend Status: {trend_status}")
+                if trend_break:
+                    st.warning("📢 Trend break confirmed!")
+
+                # Graph Plotting
+                fig, ax = plt.subplots(figsize=(8,4))
+                ax.plot(multipliers_float, marker='o', linestyle='-', color='blue', label="Multiplier History")
+                ax.axhline(prediction, color='red', linestyle='--', label=f"Prediction: {prediction}x")
+                ax.set_title("Aviator Multiplier Trend & Prediction")
+                ax.set_xlabel("Rounds")
+                ax.set_ylabel("Multiplier (x)")
+                ax.legend()
+                st.pyplot(fig)
+
         except ValueError:
-            st.error("इनपुट में त्रुटि: कृपया सुनिश्चित करें कि सभी मान संख्याएँ (numbers) हैं और सही फॉर्मेट में हैं।")
+            st.error("इनपुट में त्रुटि: सभी मान संख्याएँ (numbers) होने चाहिए।")
         except Exception as e:
             st.error(f"एक अप्रत्याशित त्रुटि आई: {e}")
 
+# Show multiplier history
+st.write("### 📊 Latest Multipliers History")
+st.write(st.session_state.multipliers)

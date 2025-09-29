@@ -1,0 +1,172 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>Aviator Pattern Tracker Pro</title>
+    <style>
+        /* CSS Styling */
+        body { font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; margin: 20px; background-color: #f4f4f9; color: #333; }
+        h2, h3 { color: #007bff; border-bottom: 2px solid #eee; padding-bottom: 5px; }
+        input[type="number"], button { 
+            padding: 10px 15px; margin: 5px; border: 1px solid #ccc; border-radius: 5px; 
+            font-size: 16px; transition: all 0.3s;
+        }
+        button { 
+            background-color: #007bff; color: white; cursor: pointer; border: none; 
+        }
+        button:hover { background-color: #0056b3; }
+        table { border-collapse: collapse; width: 100%; margin-top: 20px; box-shadow: 0 4px 8px rgba(0,0,0,0.1); }
+        th, td { border: 1px solid #ddd; padding: 12px; text-align: center; }
+        th { background-color: #007bff; color: white; }
+        .bada { background-color: #d4edda; color: #155724; font-weight: bold; } /* Green for Bada (>= 2x) */
+        .chhota { background-color: #f8d7da; color: #721c24; } /* Red for Chhota (< 2x) */
+        .prediction-box { 
+            border: 2px solid #ffc107; padding: 15px; margin-top: 20px; 
+            background-color: #fff3cd; border-radius: 8px;
+        }
+    </style>
+</head>
+<body>
+    <h2>Aviator Pattern Tracker Pro</h2>
+    <input type="number" step="0.01" id="multiplier" placeholder="Enter multiplier (e.g., 3.45)">
+    <button onclick="addMultiplier()">Add Multiplier</button>
+    <button onclick="resetData()">Reset Data</button>
+
+    <h3>Latest Multipliers (Max 30 Rounds):</h3>
+    <div id="multiplierList">[]</div>
+
+    <h3>Prediction & Pattern Analysis:</h3>
+    <div id="prediction" class="prediction-box">Please add some multipliers to see the analysis.</div>
+
+    <table>
+        <thead>
+            <tr>
+                <th>Round #</th>
+                <th>Multiplier (X)</th>
+                <th>Mode</th>
+            </tr>
+        </thead>
+        <tbody id="historyTableBody">
+            </tbody>
+    </table>
+
+<script>
+    let multipliers = [];
+    let patterns = []; // Stores "Bada" or "Chhota"
+    const MAX_ROUNDS = 30;
+
+    function addMultiplier() {
+        let val = parseFloat(document.getElementById("multiplier").value);
+        if (isNaN(val) || val <= 1) { 
+            alert("Enter a valid multiplier greater than 1.00"); 
+            return; 
+        }
+        
+        // Data Storage and Limit Check
+        multipliers.push(val);
+        if (multipliers.length > MAX_ROUNDS) { multipliers.shift(); }
+
+        let mode = val >= 2 ? "Bada" : "Chhota";
+        patterns.push(mode);
+        if (patterns.length > MAX_ROUNDS) { patterns.shift(); }
+
+        // Clear input after adding
+        document.getElementById("multiplier").value = '';
+        document.getElementById("multiplier").focus();
+        
+        updateUI();
+    }
+
+    function resetData() {
+        multipliers = [];
+        patterns = [];
+        updateUI();
+        document.getElementById("prediction").innerHTML = "Data has been reset. Please enter new multipliers.";
+    }
+
+    function updateUI() {
+        document.getElementById("multiplierList").innerText = multipliers.slice().reverse().join(", ");
+        calculatePrediction();
+        updateHistoryTable();
+    }
+
+    function updateHistoryTable() {
+        const tbody = document.getElementById("historyTableBody");
+        tbody.innerHTML = ''; // Clear existing rows
+
+        // Iterate backwards to show latest at the top
+        for (let i = multipliers.length - 1; i >= 0; i--) {
+            const m = multipliers[i];
+            const p = patterns[i];
+            const row = tbody.insertRow();
+            
+            // Round # is calculated from the full list length
+            row.insertCell().innerText = i + 1; 
+            
+            const multiplierCell = row.insertCell();
+            multiplierCell.innerText = m.toFixed(2) + 'X';
+            
+            const modeCell = row.insertCell();
+            modeCell.innerText = p;
+            modeCell.className = (p === 'Bada' ? 'bada' : 'chhota');
+        }
+    }
+
+    function calculatePrediction() {
+        if (multipliers.length === 0) return;
+
+        // 1. Basic Stats
+        let sum = multipliers.reduce((a,b) => a+b, 0);
+        let avg = (sum / multipliers.length).toFixed(2);
+        let above2x = multipliers.filter(x => x >= 2).length;
+        let probability = ((above2x / multipliers.length) * 100).toFixed(2);
+        let suggestion = probability >= 40 ? "BET (Based on 2X+ history)" : "SKIP/WAIT (Low 2X+ frequency)";
+
+        // 2. Pattern Analysis (Hint Logic)
+        let hint = getHint();
+        let patternStr = patterns.slice().reverse().join(" → "); // Latest first
+
+        // 3. Display Results
+        document.getElementById("prediction").innerHTML = 
+            `<h4>📊 Statistical Summary:</h4>` +
+            `<p><b>Average Multiplier (Last ${multipliers.length}):</b> ${avg}×</p>` +
+            `<p><b>Frequency (>= 2×):</b> ${probability}%</p>` +
+            `<p><b>Suggested Action:</b> <span style="color: ${suggestion.includes('BET') ? 'green' : 'red'};">${suggestion}</span></p>` +
+            `<hr>` +
+            `<h4>🔍 Pattern Signal:</h4>` +
+            `<p><b>Latest Pattern:</b> ${patternStr.substring(0, 50)}...</p>` +
+            `<p><b>Pattern Hint:</b> <b>${hint}</b></p>`;
+    }
+
+    function getHint() {
+        const recent = patterns.slice(-6); // Check last 6 rounds
+
+        // Pattern 1: Long Chhota Streak (Martingale Idea)
+        if (recent.every(x => x === "Chhota") && recent.length === 6) {
+            return "🚩 BIG SIGNAL: 6 Consecutive 'Chhota'. High probability of next round being 'Bada' (>= 2x). Consider a high bet.";
+        }
+
+        // Pattern 2: Alternating Pattern Check (e.g., B → C → B → C)
+        let isAlternating = true;
+        for (let i = 0; i < recent.length - 1; i++) {
+            if (recent[i] === recent[i+1]) {
+                isAlternating = false;
+                break;
+            }
+        }
+        if (isAlternating && recent.length >= 4) {
+             return "🔄 ALTERNATING: Recent pattern is Bada → Chhota → Bada... If current is Chhota, next might be Bada.";
+        }
+        
+        // Pattern 3: Recent High Multiplier Follow-up
+        // Check if the 2nd or 3rd to last round was Bada
+        if (patterns[patterns.length - 2] === 'Bada' && patterns.slice(-1)[0] === 'Chhota') {
+             return "📉 RECOVERY: Bada was just hit, followed by Chhota. Wait for the pattern to reset or hit a quick cashout.";
+        }
+        
+        // Fallback
+        return "Waiting for a strong pattern or longer streak to develop...";
+    }
+</script>
+
+</body>
+</html>

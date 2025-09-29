@@ -3,7 +3,6 @@
 <head>
     <title>Aviator Pattern Tracker Pro - V8 Master FIX</title>
     <style>
-        /* CSS Styling */
         body { font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; margin: 20px; background-color: #f4f4f9; color: #333; }
         h2, h3 { color: #007bff; border-bottom: 2px solid #eee; padding-bottom: 5px; }
         input[type="number"], button { 
@@ -17,23 +16,20 @@
         table { border-collapse: collapse; width: 100%; margin-top: 20px; box-shadow: 0 4px 8px rgba(0,0,0,0.1); }
         th, td { border: 1px solid #ddd; padding: 12px; text-align: center; }
         th { background-color: #007bff; color: white; }
-        .bada { background-color: #d4edda; color: #155724; font-weight: bold; } /* Green for Bada (>= 2x) */
-        .chhota { background-color: #f8d7da; color: #721c24; } /* Red for Chhota (< 2x) */
-        .prediction-box { 
-            border: 2px solid #ffc107; padding: 15px; margin-top: 20px; 
-            background-color: #fff3cd; border-radius: 8px;
-        }
-        .warning { 
-            color: #856404; background-color: #fff3cd; border: 1px solid #ffeeba; padding: 10px; border-radius: 5px; margin-top: 10px; 
-            font-weight: bold; 
-        }
+        .bada { background-color: #d4edda; color: #155724; font-weight: bold; }
+        .chhota { background-color: #f8d7da; color: #721c24; }
+        .prediction-box { border: 2px solid #ffc107; padding: 15px; margin-top: 20px; background-color: #fff3cd; border-radius: 8px; }
+        .warning { color: #856404; background-color: #fff3cd; border: 1px solid #ffeeba; padding: 10px; border-radius: 5px; margin-top: 10px; font-weight: bold; }
     </style>
 </head>
 <body>
     <h2>Aviator Pattern Tracker Pro - V8 Master FIX</h2>
+
     <input type="number" step="0.01" id="multiplier" placeholder="Enter multiplier (e.g., 3.45)">
     <button onclick="addMultiplier()">Add Multiplier</button>
     <button onclick="resetData()">Reset Data</button>
+    <button onclick="startAuto()">Start Auto</button>
+    <button onclick="stopAuto()">Stop Auto</button>
 
     <h3>Latest Multipliers (Max 30 Rounds):</h3>
     <div id="multiplierList">[]</div>
@@ -50,19 +46,17 @@
                 <th>Mode</th>
             </tr>
         </thead>
-        <tbody id="historyTableBody">
-            </tbody>
+        <tbody id="historyTableBody"></tbody>
     </table>
 
 <script>
     let multipliers = [];
-    let patterns = []; 
+    let patterns = [];
     const MAX_ROUNDS = 30;
-    
-    // --- Constants from Final Logic ---
-    const RISK_LIMIT_MAX = 6.00; 
-    const SAFE_FLOOR = 1.35; 
+    const RISK_LIMIT_MAX = 6.00;
+    const SAFE_FLOOR = 1.35;
     const USER_SIGNAL_THRESHOLD = 2.00;
+    let autoInterval;
 
     function addMultiplier() {
         let val = parseFloat(document.getElementById("multiplier").value);
@@ -90,6 +84,31 @@
         updateUI();
         document.getElementById("prediction").innerHTML = "Data has been reset. Please enter new multipliers.";
         document.getElementById("warningMessage").innerHTML = '';
+        stopAuto();
+    }
+
+    function randomCrash() {
+        return parseFloat((Math.random() * 50 + 1).toFixed(2));
+    }
+
+    function startAuto() {
+        if (autoInterval) return;
+        autoInterval = setInterval(() => {
+            let val = randomCrash();
+            multipliers.push(val);
+            if (multipliers.length > MAX_ROUNDS) multipliers.shift();
+
+            let mode = val >= 2 ? "Bada" : "Chhota";
+            patterns.push(mode);
+            if (patterns.length > MAX_ROUNDS) patterns.shift();
+
+            updateUI();
+        }, 2000);
+    }
+
+    function stopAuto() {
+        clearInterval(autoInterval);
+        autoInterval = null;
     }
 
     function updateUI() {
@@ -113,99 +132,48 @@
             modeCell.className = (p === 'Bada' ? 'bada' : 'chhota');
         }
     }
-    
-    // --- Helper Function: Flow Identification ---
+
     function calculateFlow(m) {
         if (m.length < 6) return 'UNKNOWN';
-
         const recent_6 = m.slice(-6);
         const avg_recent = recent_6.reduce((a, b) => a + b, 0) / 6;
         const high_value_count = recent_6.filter(x => x > 3.50).length;
         const crash_count = recent_6.filter(x => x < 1.50).length;
-
         if (high_value_count >= 3) return 'LARGE_TREND_FLOW';
         if (crash_count >= 4) return 'SMALL_CRASH_FLOW';
         if (avg_recent >= 2.00 && avg_recent <= 3.50) return 'MEDIUM_MOMENTUM_FLOW';
-        
         return 'SMALL_CRASH_FLOW';
     }
-    
-    // --- The Core Smart Prediction Logic ---
+
     function calculateSmartPrediction() {
         if (multipliers.length < 5) {
-             document.getElementById("prediction").innerHTML = "Smart Prediction: 1.50x (Need at least 5 rounds)";
-             document.getElementById("warningMessage").innerHTML = '';
-             return;
+            document.getElementById("prediction").innerHTML = "Smart Prediction: 1.50x (Need at least 5 rounds)";
+            document.getElementById("warningMessage").innerHTML = '';
+            return;
         }
 
         let current_flow = calculateFlow(multipliers);
         const last_input = multipliers[multipliers.length - 1];
         let warning_message = '';
 
-        // --- 1. Master Control Rules ---
-
-        // MASTER RULE A: 40x के बाद का अनिवार्य क्रैश रीसेट
-        if (last_input >= 40.0) { 
-            current_flow = 'FORCED_CRASH_RESET'; 
-        } 
-        
-        // MASTER RULE B: छोटे ट्रेंड को तोड़ने का आपका सिग्नल (> 2.0x)
+        if (last_input >= 40.0) { current_flow = 'FORCED_CRASH_RESET'; } 
         if (current_flow === 'SMALL_CRASH_FLOW' && last_input > USER_SIGNAL_THRESHOLD) {
             current_flow = 'MEDIUM_MOMENTUM_FLOW';
-        }
-        // MASTER RULE C: बड़े ट्रेंड को तोड़ने का लगातार 2 छोटे का सिग्नल
-        else if (current_flow === 'LARGE_TREND_FLOW' && multipliers.slice(-2).filter(x => x < 1.50).length >= 2) {
+        } else if (current_flow === 'LARGE_TREND_FLOW' && multipliers.slice(-2).filter(x => x < 1.50).length >= 2) {
             current_flow = 'SMALL_CRASH_FLOW';
         }
 
-        // --- 2. Base Calculation (Minimum Floor) ---
         const last_5 = multipliers.slice(-5);
         const last_5_avg = last_5.reduce((a, b) => a + b, 0) / 5;
-        // 1.35x का फ़्लोर लागू करें
         let base_prediction = Math.max(last_5_avg, SAFE_FLOOR); 
         let smart_prediction = base_prediction;
 
-        // --- 3. Smart Prediction Adjustment by Flow ---
-        
         if (current_flow === 'FORCED_CRASH_RESET') {
             smart_prediction = Math.min(1.40, base_prediction);
-            
         } else if (current_flow === 'LARGE_TREND_FLOW') {
             smart_prediction = Math.min(Math.max(base_prediction * 1.5, 2.00), 4.50); 
-
         } else if (current_flow === 'MEDIUM_MOMENTUM_FLOW') {
             smart_prediction = Math.min(Math.max(base_prediction * 1.3, 1.80), 3.50);
-            
         } else if (current_flow === 'SMALL_CRASH_FLOW' || current_flow === 'UNKNOWN') {
-            // 2.0x से ज़्यादा नहीं
             smart_prediction = Math.min(base_prediction * 1.1, 2.00);
-            
-            // बूस्ट लॉजिक
-            if (multipliers.slice(-3).filter(x => x < 1.35).length >= 2) {
-                 smart_prediction += 0.15;
-            }
-        }
-        
-        // --- 4. खराब पैटर्न पर चेतावनी (Warning Message Logic) ---
-        const recent_4 = multipliers.slice(-4);
-        if (recent_4.filter(x => x < 2.0).length >= 3 && recent_4.filter(x => x > 3.0).length >= 1) {
-            warning_message = "🔴 **DANGER:** Unstable pattern (3-4 small followed by 1 big). Suggest waiting or very quick cashout.";
-        } else if (current_flow === 'FORCED_CRASH_RESET') {
-            warning_message = '⚠️ **FORCED RESET:** Very large multiplier hit. Predicting highly safe.';
-        } else {
-             warning_message = `Current Flow: ${current_flow.replace(/_/g, ' ').toUpperCase()}. System is running on balanced target.`;
-        }
-
-        // --- 5. Final Output ---
-        const final_prediction = Math.round(Math.min(smart_prediction, RISK_LIMIT_MAX) * 100) / 100;
-
-        document.getElementById("prediction").innerHTML = 
-            `<h4>🎯 Smart Prediction Target:</h4>` +
-            `<p style="font-size: 24px;"><b>${final_prediction.toFixed(2)}×</b></p>`;
-        
-        document.getElementById("warningMessage").innerHTML = `<div class="warning">${warning_message.replace(/\*\*/g, '<b>').replace(/\*\*/g, '</b>')}</div>`;
-    }
-</script>
-
-</body>
-</html>
+            if (multipliers.slice(-3).filter(x => x < 1.35).
